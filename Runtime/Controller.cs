@@ -27,22 +27,28 @@ namespace Yamadev.YamaStream
         [UdonSynced, FieldChangeCallback(nameof(Stopped))] bool _stopped = true;
         [UdonSynced, FieldChangeCallback(nameof(Speed))] float _speed = 1f;
         [UdonSynced, FieldChangeCallback(nameof(Repeat))] Vector3 _repeat = new Vector3(0f, 0f, 999999f);
+        VideoPlayerType _videoPlayerTypeLocal;
+        bool _loopLocal;
+        bool _pausedLocal;
+        bool _stoppedLocal = true;
+        float _speedLocal;
+        Vector3 _repeatLocal;
         Listener[] _listeners = { };
-        bool _isLocal = false;
+        bool _isLocal;
         int _errorRetryCount = 0;
-        bool _loading = false;
-        bool _isReload = false;
+        bool _loading;
+        bool _isReload;
         float _lastSetTime = 0f;
         float _repeatCooling = 0.6f; 
-        bool _initialized = false;
+        bool _initialized;
 
-        void Start() => initialize();
+        void Start() => Initialize();
 
         void Update()
         {
             if (OutOfRepeat(VideoTime) && Time.time - _lastSetTime > _repeatCooling) 
                 SetTime(Repeat.ToRepeatStatus().GetStartTime());
-            if (IsPlaying && Time.time - _syncFrequency > _lastSync) DoSync();
+            if (!_isLocal && IsPlaying && Time.time - _syncFrequency > _lastSync) DoSync();
         }
 
         public string Version => _version;
@@ -50,7 +56,7 @@ namespace Yamadev.YamaStream
         public Permission Permission => _permission;
         public PlayerPermission PlayerPermission => _permission == null ? PlayerPermission.Editor : _permission.PlayerPermission;
 
-        void initialize()
+        public void Initialize()
         {
             if (_initialized) return;
             Loop = _loop;
@@ -69,16 +75,33 @@ namespace Yamadev.YamaStream
             _listeners = _listeners.Add(listener);
         }
 
-        public bool IsLocal => _isLocal;
+        public bool IsLocal
+        {
+            get => _isLocal;
+            set
+            {
+                if (_isLocal == value) return;
+                if (!value) Stopped = true;
+                _isLocal = value;
+                if (value) Stopped = true;
+                else
+                {
+                    Track = Track.New(_targetPlayer, _title, _url, _originalUrl);
+                    Reload();
+                }
+                foreach (Listener listener in _listeners) listener.OnLocalModeChanged();
+            }
+        }
 
         public VideoPlayerType VideoPlayerType
         {
-            get => _videoPlayerType;
+            get => _isLocal ? _videoPlayerTypeLocal : _videoPlayerType;
             set 
             {
-                if (_videoPlayerType == value) return;
+                if ((_isLocal ? _videoPlayerTypeLocal : _videoPlayerType) == value) return;
                 VideoPlayerHandle.Stop();
-                _videoPlayerType = value;
+                if (_isLocal) _videoPlayerTypeLocal = value;
+                else _videoPlayerType = value;
                 if (Networking.IsOwner(gameObject) && !_isLocal) RequestSerialization();
                 foreach (Listener listener in _listeners) listener.OnPlayerChanged();
             }
@@ -96,15 +119,16 @@ namespace Yamadev.YamaStream
 
         public bool Paused
         {
-            get => _paused;
+            get => _isLocal ? _pausedLocal : _paused;
             set
             {
-                _paused = value;
-                if (_paused) VideoPlayerHandle.Pause();
+                if (_isLocal) _pausedLocal = value;
+                else _paused = value;
+                if (value) VideoPlayerHandle.Pause();
                 else VideoPlayerHandle.Play();
 #if AUDIOLINK_V1
                 if (_audioLink != null && _useAudioLink)
-                    _audioLink.SetMediaPlaying(_paused ? MediaPlaying.Paused : IsLive ? MediaPlaying.Streaming : MediaPlaying.Playing);
+                    _audioLink.SetMediaPlaying(value ? MediaPlaying.Paused : IsLive ? MediaPlaying.Streaming : MediaPlaying.Playing);
 #endif
                 if (Networking.IsOwner(gameObject) && !_isLocal)
                 {
@@ -116,23 +140,25 @@ namespace Yamadev.YamaStream
 
         public bool Stopped
         {
-            get => _stopped;
+            get => _isLocal ? _stoppedLocal : _stopped;
             set
             {
-                _stopped = value;
+                if (_isLocal) _stoppedLocal = value;
+                else _stopped = value;
                 _isReload = false;
-                if (_stopped) VideoPlayerHandle.Stop();
+                if (value) VideoPlayerHandle.Stop();
                 if (Networking.IsOwner(gameObject) && !_isLocal) RequestSerialization();
             }
         }
 
         public bool Loop
         {
-            get => _loop;
+            get => _isLocal ? _loopLocal : _loop;
             set
             {
-                _loop = value;
-                foreach (VideoPlayerHandle handle in _videoPlayerHandles) handle.Loop = _loop;
+                if (_isLocal) _loopLocal = value;
+                else _loop = value;
+                foreach (VideoPlayerHandle handle in _videoPlayerHandles) handle.Loop = value;
 #if AUDIOLINK_V1
                 if (_audioLink != null && _useAudioLink)
                     _audioLink.SetMediaLoop(_loop ? MediaLoop.LoopOne : MediaLoop.None);
@@ -144,19 +170,20 @@ namespace Yamadev.YamaStream
 
         public void UpdateSpeed()
         {
-            _videoPlayerAnimator.SetFloat("Speed", _speed);
+            _videoPlayerAnimator.SetFloat("Speed", Speed);
             _videoPlayerAnimator.Update(0f);
-            if (!_stopped && _videoPlayerType == VideoPlayerType.AVProVideoPlayer) 
+            if (!Stopped && VideoPlayerType == VideoPlayerType.AVProVideoPlayer) 
                 SendCustomEventDelayedFrames(nameof(Reload), 1);
             UpdateAudio();
         }
 
         public float Speed
         {
-            get => _speed;
+            get => _isLocal ? _speedLocal : _speed;
             set
             {
-                _speed = value;
+                if (_isLocal) _speedLocal = value;
+                else _speed = value;
                 UpdateSpeed();
                 if (Networking.IsOwner(gameObject) && !_isLocal)
                 {
@@ -176,10 +203,11 @@ namespace Yamadev.YamaStream
 
         public Vector3 Repeat
         {
-            get => _repeat;
+            get => _isLocal ? _repeatLocal : _repeat;
             set
             {
-                _repeat = value;
+                if (_isLocal) _repeatLocal = value;
+                else _repeat = value;
                 if (Networking.IsOwner(gameObject) && !_isLocal) RequestSerialization();
                 foreach (Listener listener in _listeners) listener.OnRepeatChanged();
             }
@@ -231,6 +259,7 @@ namespace Yamadev.YamaStream
 
         public override void OnDeserialization()
         {
+            if (_isLocal) return;
             Track track = Track.New(_targetPlayer, _title, _url, _originalUrl);
             foreach (Listener listener in _listeners) listener.OnTrackSynced(track.GetUrl());
             if (track.GetUrl() != Track.GetUrl())
@@ -252,20 +281,24 @@ namespace Yamadev.YamaStream
         {
             _errorRetryCount = 0;
             _loading = false;
-            _stopped = false;
-            if (_paused) VideoPlayerHandle.Pause();
+            if (_isLocal) _stoppedLocal = false;
+            else _stopped = false;
+            if (Paused) VideoPlayerHandle.Pause();
             else VideoPlayerHandle.Play();
             UpdateAudio();
 #if AUDIOLINK_V1
             if (_audioLink != null && _useAudioLink)
                 _audioLink.SetMediaPlaying(IsLive ? MediaPlaying.Streaming : MediaPlaying.Playing);
 #endif
-            if (Networking.IsOwner(gameObject) && !_isLocal && !_isReload)
+            if (!_isLocal)
             {
-                SyncTime = 0f;
-                RequestSerialization();
+                if (Networking.IsOwner(gameObject) && !_isReload)
+                {
+                    SyncTime = 0f;
+                    RequestSerialization();
+                }
+                else DoSync();
             }
-            else DoSync();
             if (KaraokeMode != KaraokeMode.None) SendCustomEventDelayedSeconds(nameof(ForceSync), 1f);
             foreach (Listener listener in _listeners) listener.OnVideoStart();
             _isReload = false;
@@ -273,14 +306,16 @@ namespace Yamadev.YamaStream
 
         public override void OnVideoPlay()
         {
-            _paused = false;
+            if (_isLocal) _pausedLocal = false;
+            else _paused = false;
             if (KaraokeMode != KaraokeMode.None) SendCustomEventDelayedSeconds(nameof(ForceSync), 1f);
             foreach (Listener listener in _listeners) listener.OnVideoPlay();
         }
 
         public override void OnVideoPause()
         {
-            _paused = true;
+            if (_isLocal) _pausedLocal = true;
+            else _paused = true;
             foreach (Listener listener in _listeners) listener.OnVideoPause();
         }
 
@@ -288,11 +323,14 @@ namespace Yamadev.YamaStream
         {
             if (!_isReload)
             {
-                _paused = false;
+                if (_isLocal) _pausedLocal = false;
+                else _paused = false;
                 _loading = false;
-                _stopped = true;
+                if (_isLocal) _stoppedLocal = true;
+                else _stopped = true;
                 _errorRetryCount = 0;
-                _repeat = new Vector3(0f, 0f, 999999f);
+                if (_isLocal) _repeatLocal = new Vector3(0f, 0f, 999999f);
+                else _repeat = new Vector3(0f, 0f, 999999f);
                 if (!string.IsNullOrEmpty(Track.GetUrl())) _history.AddTrack(Track);
                 Track = Track.New(_videoPlayerType, string.Empty, VRCUrl.Empty);
 #if AUDIOLINK_V1

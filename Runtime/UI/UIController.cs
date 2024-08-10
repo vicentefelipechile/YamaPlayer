@@ -99,6 +99,10 @@ namespace Yamadev.YamaStream.UI
         [SerializeField] GameObject _permissionEntry;
         [SerializeField] GameObject _permissionPage;
 
+        [Header("Settings - Other")]
+        [SerializeField] Toggle _localOn;
+        [SerializeField] Toggle _localOff;
+
         [Header("Loading")]
         [SerializeField] GameObject _loading;
         [SerializeField] Text _message;
@@ -555,6 +559,18 @@ namespace Yamadev.YamaStream.UI
             UpdateTranslation();
             GeneratePlaylistView();
         }
+
+        public void SetLocalOn()
+        {
+            if (_localOn == null || !_localOn.isOn) return;
+            _controller.IsLocal = true;
+        }
+        public void SetLocalOff()
+        {
+            if (_localOff == null || !_localOff.isOn) return;
+            _controller.IsLocal = false;
+        }
+
         public void SetKaraokeModeOff()
         {
             if (!CheckPermission()) return;
@@ -766,6 +782,8 @@ namespace Yamadev.YamaStream.UI
             updateLoadingView();
             updateAudioView();
             if (_idle != null && _idleImage != null) _idle.gameObject.SetActive(_controller.Stopped);
+            if (_localOn != null) _localOn.SetIsOnWithoutNotify(_controller.IsLocal);
+            if (_localOff != null) _localOff.SetIsOnWithoutNotify(!_controller.IsLocal);
         }
 
         void updateProgress()
@@ -1070,5 +1088,6 @@ namespace Yamadev.YamaStream.UI
         public override void OnEmissionChanged() => updateScreenView();
         public override void OnKaraokeModeChanged() => updateKaraokeView();
         public override void OnPermissionChanged() => GeneratePermissionView();
+        public override void OnLocalModeChanged() => UpdateUI();
     }
 }

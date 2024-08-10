@@ -48,6 +48,7 @@ namespace Yamadev.YamaStream
         public virtual void OnShufflePlayChanged() { }
         public virtual void OnOwnerChanged() { }
         public virtual void OnPlayerChanged() { }
+        public virtual void OnLocalModeChanged() { }
         public virtual void OnVideoRetry() { }
         public virtual void OnLanguageChanged() { }
         public virtual void OnUseAudioLinkChanged() { }

@@ -35,7 +35,7 @@ namespace Yamadev.YamaStream
 
         public KaraokeMode KaraokeMode
         {
-            get => _karaokeMode;
+            get => _isLocal ? KaraokeMode.None : _karaokeMode;
             set
             {
                 _karaokeMode = value;
@@ -49,7 +49,7 @@ namespace Yamadev.YamaStream
 
         public string[] KaraokeMembers
         {
-            get => _karaokeMembers;
+            get => _isLocal ? new string[0] : _karaokeMembers;
             set
             {
                 if (IsKaraokeMember ^ Array.IndexOf(value, Networking.LocalPlayer.displayName) >= 0)
@@ -88,6 +88,7 @@ namespace Yamadev.YamaStream
         }
 
         public float NetworkOffset => Paused ? 0 : (Networking.GetServerTimeInMilliseconds() - _serverTimeMilliseconds) / 1000f * Speed;
+
         public void ForceSync() => DoSync(true);
         public void DoSync(bool force = false)
         {
